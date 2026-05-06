@@ -39,16 +39,26 @@ jobs:
       - name: Ensure ffmpeg is installed
         run: sudo apt-get install -y ffmpeg
 
-      - name: Download video via proxy (with merging)
+      - name: Download video via proxy (safe filename)
         run: |
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
             -f "bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]" \
             --merge-output-format mp4 \
             --ffmpeg-location /usr/bin/ffmpeg \
-            -o "downloads/%(title)s.%(ext)s" \
+            -o "downloads/%(id)s.%(ext)s" \
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
+
+      - name: Save video title to file
+        if: success()
+        run: |
+          ./bin/yt-dlp_linux \
+            --proxy socks5://127.0.0.1:1080 \
+            --get-title \
+            "${{ github.event.inputs.video_url }}" > downloads/title.txt
+          echo "Title saved to title.txt"
+          cat downloads/title.txt
 
       - name: Check if download succeeded
         run: |
@@ -64,11 +74,9 @@ jobs:
         if: success()
         run: |
           cd downloads/
-          # Keep original filename but zip it
           for f in *; do
-            if [ -f "$f" ]; then
+            if [ -f "$f" ] && [ "$f" != "title.txt" ]; then
               zip -9 "${f}.zip" "$f"
-              # Split if larger than 1.9 GB
               find . -name "${f}.zip" -size +1900M | while read z; do
                 split -b 500M -d "$z" "${z%.zip}.part-"
                 rm "$z"
