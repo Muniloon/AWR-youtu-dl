@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 import json, sys
 
-# Default input file
-input_file = "merged_outbounds.json"  # Use the fetched file first
-# If an argument is given, use that instead
+input_file = "merged_outbounds.json"
 if len(sys.argv) > 1:
     input_file = sys.argv[1]
 
@@ -15,14 +13,14 @@ except FileNotFoundError:
     with open("config.json", "r") as f:
         outbounds = json.load(f)
 
-# Clean unsupported fields or deprecated stuff
+# Clean unsupported fields
 for ob in outbounds:
     ob.pop("tcp_fast_open", None)
     tls = ob.get("tls")
     if isinstance(tls, dict):
         tls.pop("record_fragment", None)
 
-# Add auto urltest and selector
+# Build config with auto selector and urltest
 config = {
     "inbounds": [
         {
