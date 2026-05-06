@@ -1,4 +1,4 @@
-name: Clean Up Downloads
+name: 🗑️Clean Up Downloads
 
 on:
   workflow_dispatch:
