@@ -4,6 +4,9 @@ import json
 with open("config.json", "r") as f:
     cfg = json.load(f)
 
+# Remove the problematic dns section
+cfg.pop("dns", None)
+
 # Remove any existing socks inbound to avoid duplicates
 cfg["inbounds"] = [
     {
@@ -17,7 +20,7 @@ cfg["inbounds"] = [
     }
 ] + [i for i in cfg.get("inbounds", []) if i.get("tag") != "socks-in"]
 
-# Ensure route exists and direct all traffic to the selector
+# Ensure the final route points to the selector
 if "route" not in cfg:
     cfg["route"] = {}
 cfg["route"]["final"] = "✅ Selector"
