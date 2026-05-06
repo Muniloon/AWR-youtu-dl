@@ -54,7 +54,7 @@
 <h2>🎬 استفاده (دانلود یک ویدیو)</h2>
 <ol>
   <li>به تب <b><span dir="ltr">Actions</span></b> بروید.</li>
-  <li>از ستون سمت چپ، <b><span dir="ltr">YouTube Downloader with V2Ray Proxy</span></b> را انتخاب کنید.</li>
+  <li>از ستون سمت چپ، <b><span dir="ltr">🎖️Downloader</span></b> را انتخاب کنید.</li>
   <li>روی <b><span dir="ltr">Run workflow</span></b> کلیک کنید.</li>
   <li>در کادر بازشده:
     <ul>
