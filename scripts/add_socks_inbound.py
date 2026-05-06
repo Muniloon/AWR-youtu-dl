@@ -4,10 +4,18 @@ import json
 with open("config.json", "r") as f:
     cfg = json.load(f)
 
-# Remove the problematic dns section
+# Remove sections that are not used in our workflow or may cause issues
 cfg.pop("dns", None)
+cfg.pop("ntp", None)
+cfg.pop("experimental", None)
 
-# Remove any existing socks inbound to avoid duplicates
+# Clean outbounds: remove unsupported TLS fields
+for ob in cfg.get("outbounds", []):
+    tls = ob.get("tls")
+    if isinstance(tls, dict):
+        tls.pop("record_fragment", None)   # not supported in sing-box 1.11
+
+# Add socks inbound
 cfg["inbounds"] = [
     {
         "type": "socks",
@@ -15,12 +23,11 @@ cfg["inbounds"] = [
         "listen": "127.0.0.1",
         "listen_port": 1080,
         "sniff": True,
-        "sniff_override_destination": False,
         "users": []
     }
 ] + [i for i in cfg.get("inbounds", []) if i.get("tag") != "socks-in"]
 
-# Ensure the final route points to the selector
+# Ensure final route points to selector
 if "route" not in cfg:
     cfg["route"] = {}
 cfg["route"]["final"] = "✅ Selector"
