@@ -39,10 +39,14 @@ jobs:
       - name: Ensure ffmpeg is installed
         run: sudo apt-get install -y ffmpeg
 
-      - name: Download video via proxy (safe filename)
+      # ---------- Strategy 1: Impersonate Chrome ----------
+      - name: Attempt 1 - Impersonate Chrome
+        id: attempt1
+        continue-on-error: true
         run: |
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
+            --impersonate chrome \
             -f "bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]" \
             --merge-output-format mp4 \
             --ffmpeg-location /usr/bin/ffmpeg \
@@ -50,14 +54,48 @@ jobs:
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
 
-      - name: Save video title to file
+      # ---------- Strategy 2: Android client fallback ----------
+      - name: Attempt 2 - Android client
+        id: attempt2
+        if: steps.attempt1.outcome == 'failure'
+        continue-on-error: true
+        run: |
+          ./bin/yt-dlp_linux \
+            --proxy socks5://127.0.0.1:1080 \
+            -f "bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]" \
+            --merge-output-format mp4 \
+            --ffmpeg-location /usr/bin/ffmpeg \
+            --extractor-args "youtube:player_client=android,ios" \
+            -o "downloads/%(id)s.%(ext)s" \
+            --no-playlist \
+            "${{ github.event.inputs.video_url }}"
+
+      # ---------- Strategy 3: Use cookies (if secret exists) ----------
+      - name: Attempt 3 - With cookies
+        if: steps.attempt2.outcome == 'failure' && env.YT_COOKIES != ''
+        continue-on-error: true
+        run: |
+          echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
+          ./bin/yt-dlp_linux \
+            --proxy socks5://127.0.0.1:1080 \
+            -f "bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]" \
+            --merge-output-format mp4 \
+            --ffmpeg-location /usr/bin/ffmpeg \
+            --cookies cookies.txt \
+            -o "downloads/%(id)s.%(ext)s" \
+            --no-playlist \
+            "${{ github.event.inputs.video_url }}"
+        env:
+          YT_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+
+      # ---------- Save title ----------
+      - name: Save video title
         if: success()
         run: |
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
             --get-title \
             "${{ github.event.inputs.video_url }}" > downloads/title.txt
-          echo "Title saved to title.txt"
           cat downloads/title.txt
 
       - name: Check if download succeeded
@@ -81,7 +119,7 @@ jobs:
                 split -b 500M -d "$z" "${z%.zip}.part-"
                 rm "$z"
               done
-              rm "$f"   # remove original uncompressed file
+              rm "$f"
             fi
           done
           cd ..
