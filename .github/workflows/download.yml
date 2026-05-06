@@ -1,0 +1,73 @@
+name: YouTube Downloader with V2Ray Proxy
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'YouTube video URL'
+        required: true
+        type: string
+      quality:
+        description: 'Quality (e.g. 720, 1080, best)'
+        required: false
+        default: 'best'
+        type: string
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set execute permissions for local tools
+        run: chmod +x bin/yt-dlp_linux bin/sing-box
+
+      - name: Add socks inbound to V2Ray config
+        run: python3 scripts/add_socks_inbound.py
+
+      - name: Start sing-box proxy
+        run: |
+          ./bin/sing-box run -c config_singbox.json &
+          sleep 5
+
+      - name: Download video via proxy
+        run: |
+          ./bin/yt-dlp_linux \
+            --proxy socks5://127.0.0.1:1080 \
+            -f "bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]" \
+            --merge-output-format mp4 \
+            -o "downloads/%(title)s.%(ext)s" \
+            --no-playlist \
+            "${{ github.event.inputs.video_url }}"
+
+      - name: Check if download succeeded
+        run: |
+          if [ -d downloads ] && [ "$(ls -A downloads)" ]; then
+            echo "Download successful!"
+            ls -lh downloads/
+          else
+            echo "Download failed."
+            exit 1
+          fi
+
+      - name: Compress and split large files
+        if: success()
+        run: |
+          cd downloads/
+          ZIP_NAME="video_$(date +%Y%m%d_%H%M%S).zip"
+          zip -9 "$ZIP_NAME" *
+          find . -name "*.zip" -size +1900M | while read f; do
+            split -b 500M -d "$f" "${f%.zip}.part-"
+            rm "$f"
+          done
+          cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-video
+          path: downloads/*
+          retention-days: 7
