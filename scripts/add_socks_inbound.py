@@ -1,19 +1,28 @@
 #!/usr/bin/env python3
-import json
+import json, sys
 
-with open("config.json", "r") as f:
-    outbounds = json.load(f)
+# Default input file
+input_file = "merged_outbounds.json"  # Use the fetched file first
+# If an argument is given, use that instead
+if len(sys.argv) > 1:
+    input_file = sys.argv[1]
 
-# Clean unsupported or deprecated fields for sing-box v1.11.0
+try:
+    with open(input_file, "r") as f:
+        outbounds = json.load(f)
+except FileNotFoundError:
+    # Fallback to old config.json if exists
+    with open("config.json", "r") as f:
+        outbounds = json.load(f)
+
+# Clean unsupported fields or deprecated stuff
 for ob in outbounds:
-    # Remove deprecated tcp_fast_open
     ob.pop("tcp_fast_open", None)
-    # Remove unsupported record_fragment from tls
     tls = ob.get("tls")
     if isinstance(tls, dict):
         tls.pop("record_fragment", None)
 
-# Build a complete sing-box configuration
+# Add auto urltest and selector
 config = {
     "inbounds": [
         {
@@ -26,7 +35,6 @@ config = {
         }
     ],
     "outbounds": outbounds + [
-        # Selector that uses urltest for automatic best server
         {
             "type": "selector",
             "tag": "select",
@@ -48,11 +56,11 @@ config = {
             {"protocol": "dns", "action": "hijack-dns"}
         ],
         "auto_detect_interface": True,
-        "final": "auto"  # Use the urltest group
+        "final": "auto"
     }
 }
 
 with open("config_singbox.json", "w") as f:
     json.dump(config, f, indent=2)
 
-print("config_singbox.json created (record_fragment removed, socks inbound, auto server selection).")
+print("config_singbox.json created with socks inbound and auto server selection.")
