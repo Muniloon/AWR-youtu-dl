@@ -13,6 +13,9 @@ on:
         default: 'best'
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   download:
     runs-on: ubuntu-latest
@@ -32,6 +35,9 @@ jobs:
         run: |
           ./bin/sing-box run -c config_singbox.json &
           sleep 5
+
+      - name: Ensure ffmpeg is installed
+        run: sudo apt-get install -y ffmpeg
 
       - name: Download video via proxy (with merging)
         run: |
@@ -58,17 +64,24 @@ jobs:
         if: success()
         run: |
           cd downloads/
-          ZIP_NAME="video_$(date +%Y%m%d_%H%M%S).zip"
-          zip -9 "$ZIP_NAME" *
-          find . -name "*.zip" -size +1900M | while read f; do
-            split -b 500M -d "$f" "${f%.zip}.part-"
-            rm "$f"
+          # Keep original filename but zip it
+          for f in *; do
+            if [ -f "$f" ]; then
+              zip -9 "${f}.zip" "$f"
+              # Split if larger than 1.9 GB
+              find . -name "${f}.zip" -size +1900M | while read z; do
+                split -b 500M -d "$z" "${z%.zip}.part-"
+                rm "$z"
+              done
+              rm "$f"   # remove original uncompressed file
+            fi
           done
           cd ..
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: youtube-video
-          path: downloads/*
-          retention-days: 7
+      - name: Commit and push video to repository
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add downloads/
+          git commit -m "Add downloaded video $(date +%Y%m%d_%H%M%S)" || echo "Nothing to commit"
+          git push
