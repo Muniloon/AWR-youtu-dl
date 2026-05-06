@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import base64, json, re, requests
+import base64, json, requests
 
 URLS = [
     "https://raw.githubusercontent.com/free18/v2ray/main/v.txt",
@@ -21,13 +21,16 @@ def decode_vmess(link: str):
         "server_port": int(data["port"]),
         "uuid": data["id"],
         "security": data.get("scy", "auto"),
-        "transport": {},
     }
+    # Only add transport if network is something other than tcp
     net = data.get("net", "tcp")
-    ob["transport"]["type"] = net
-    if net == "ws":
-        ob["transport"]["path"] = data.get("path", "/")
-        ob["transport"]["headers"] = {"Host": data.get("host", "")}
+    if net not in ("tcp", None):
+        transport = {"type": net}
+        if net == "ws":
+            transport["path"] = data.get("path", "/")
+            transport["headers"] = {"Host": data.get("host", "")}
+        ob["transport"] = transport
+
     tls = data.get("tls", "")
     if tls == "tls":
         ob["tls"] = {"enabled": True, "server_name": data.get("sni", "")}
