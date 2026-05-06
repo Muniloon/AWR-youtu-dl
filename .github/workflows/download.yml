@@ -58,7 +58,7 @@ jobs:
             -f "$fmt" \
             --merge-output-format mp4 \
             --ffmpeg-location /usr/bin/ffmpeg \
-            -o "downloads/%(id)s.%(ext)s" \
+            -o "downloads/%(title)s.%(ext)s" \
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
 
@@ -79,7 +79,7 @@ jobs:
             --merge-output-format mp4 \
             --ffmpeg-location /usr/bin/ffmpeg \
             --extractor-args "youtube:player_client=android,ios" \
-            -o "downloads/%(id)s.%(ext)s" \
+            -o "downloads/%(title)s.%(ext)s" \
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
 
@@ -101,21 +101,11 @@ jobs:
             --merge-output-format mp4 \
             --ffmpeg-location /usr/bin/ffmpeg \
             --cookies cookies.txt \
-            -o "downloads/%(id)s.%(ext)s" \
+            -o "downloads/%(title)s.%(ext)s" \
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
         env:
           YT_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
-
-      # ---------- Save title ----------
-      - name: Save video title
-        if: success()
-        run: |
-          ./bin/yt-dlp_linux \
-            --proxy socks5://127.0.0.1:1080 \
-            --get-title \
-            "${{ github.event.inputs.video_url }}" > downloads/title.txt
-          cat downloads/title.txt
 
       - name: Check if download succeeded
         run: |
@@ -132,7 +122,7 @@ jobs:
         run: |
           cd downloads/
           for f in *; do
-            if [ -f "$f" ] && [ "$f" != "title.txt" ]; then
+            if [ -f "$f" ]; then
               zip -9 "${f}.zip" "$f"
               find . -name "${f}.zip" -size +1900M | while read z; do
                 split -b 500M -d "$z" "${z%.zip}.part-"
