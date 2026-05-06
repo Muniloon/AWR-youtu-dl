@@ -47,10 +47,15 @@ jobs:
         id: attempt1
         continue-on-error: true
         run: |
+          if [ "${{ github.event.inputs.quality }}" = "best" ]; then
+            fmt="bestvideo+bestaudio/best"
+          else
+            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
+          fi
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
             --impersonate chrome \
-            -f "bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]" \
+            -f "$fmt" \
             --merge-output-format mp4 \
             --ffmpeg-location /usr/bin/ffmpeg \
             -o "downloads/%(id)s.%(ext)s" \
@@ -63,9 +68,14 @@ jobs:
         if: steps.attempt1.outcome == 'failure'
         continue-on-error: true
         run: |
+          if [ "${{ github.event.inputs.quality }}" = "best" ]; then
+            fmt="bestvideo+bestaudio/best"
+          else
+            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
+          fi
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
-            -f "bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]" \
+            -f "$fmt" \
             --merge-output-format mp4 \
             --ffmpeg-location /usr/bin/ffmpeg \
             --extractor-args "youtube:player_client=android,ios" \
@@ -80,9 +90,14 @@ jobs:
         continue-on-error: true
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
+          if [ "${{ github.event.inputs.quality }}" = "best" ]; then
+            fmt="bestvideo+bestaudio/best"
+          else
+            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
+          fi
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
-            -f "bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]" \
+            -f "$fmt" \
             --merge-output-format mp4 \
             --ffmpeg-location /usr/bin/ffmpeg \
             --cookies cookies.txt \
