@@ -1,0 +1,30 @@
+name: Clean Up Downloads
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Remove all files from downloads/
+        run: |
+          if [ -d downloads ]; then
+            rm -rf downloads/*
+          else
+            mkdir downloads
+          fi
+
+      - name: Commit and push removal
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add downloads/
+          git commit -m "Clean up downloads folder" || echo "Nothing to commit"
+          git push
