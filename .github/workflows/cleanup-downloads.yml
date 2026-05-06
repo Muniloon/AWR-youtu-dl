@@ -17,11 +17,11 @@ jobs:
         run: |
           if [ -d downloads ]; then
             rm -rf downloads/*
+            touch downloads/.gitkeep
           else
             mkdir downloads
+            touch downloads/.gitkeep
           fi
-          # Keep the folder tracked with a placeholder
-          touch downloads/.gitkeep
 
       - name: Commit and push removal
         run: |
