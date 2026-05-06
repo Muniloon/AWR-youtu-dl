@@ -4,14 +4,14 @@ import json
 with open("config.json", "r") as f:
     outbounds = json.load(f)
 
-# Remove unsupported fields that sing-box 1.11.0 doesn't recognize
+# Clean unsupported or deprecated fields for sing-box v1.11.0
 for ob in outbounds:
-    # tls.record_fragment removed earlier, now also remove utls if present? sing-box 1.11 does support utls.
-    # But we'll keep utls as it is supported.
-    # Remove deprecated tcp_fast_open (not used, but safe to delete)
+    # Remove deprecated tcp_fast_open
     ob.pop("tcp_fast_open", None)
-    # packet_encoding is fine for vless (XUDP)
-    # Also remove any empty "tls" field if it has only "enabled": false? No need.
+    # Remove unsupported record_fragment from tls
+    tls = ob.get("tls")
+    if isinstance(tls, dict):
+        tls.pop("record_fragment", None)
 
 # Build a complete sing-box configuration
 config = {
@@ -26,7 +26,7 @@ config = {
         }
     ],
     "outbounds": outbounds + [
-        # Add a selector that uses urltest for automatic best server
+        # Selector that uses urltest for automatic best server
         {
             "type": "selector",
             "tag": "select",
@@ -55,4 +55,4 @@ config = {
 with open("config_singbox.json", "w") as f:
     json.dump(config, f, indent=2)
 
-print("config_singbox.json created with socks inbound and auto server selection.")
+print("config_singbox.json created (record_fragment removed, socks inbound, auto server selection).")
