@@ -2,37 +2,57 @@
 import json
 
 with open("config.json", "r") as f:
-    cfg = json.load(f)
+    outbounds = json.load(f)
 
-# Remove sections that are not used in our workflow or may cause issues
-cfg.pop("dns", None)
-cfg.pop("ntp", None)
-cfg.pop("experimental", None)
+# Remove unsupported fields that sing-box 1.11.0 doesn't recognize
+for ob in outbounds:
+    # tls.record_fragment removed earlier, now also remove utls if present? sing-box 1.11 does support utls.
+    # But we'll keep utls as it is supported.
+    # Remove deprecated tcp_fast_open (not used, but safe to delete)
+    ob.pop("tcp_fast_open", None)
+    # packet_encoding is fine for vless (XUDP)
+    # Also remove any empty "tls" field if it has only "enabled": false? No need.
 
-# Clean outbounds: remove unsupported TLS fields
-for ob in cfg.get("outbounds", []):
-    tls = ob.get("tls")
-    if isinstance(tls, dict):
-        tls.pop("record_fragment", None)   # not supported in sing-box 1.11
-
-# Add socks inbound
-cfg["inbounds"] = [
-    {
-        "type": "socks",
-        "tag": "socks-in",
-        "listen": "127.0.0.1",
-        "listen_port": 1080,
-        "sniff": True,
-        "users": []
+# Build a complete sing-box configuration
+config = {
+    "inbounds": [
+        {
+            "type": "socks",
+            "tag": "socks-in",
+            "listen": "127.0.0.1",
+            "listen_port": 1080,
+            "sniff": True,
+            "users": []
+        }
+    ],
+    "outbounds": outbounds + [
+        # Add a selector that uses urltest for automatic best server
+        {
+            "type": "selector",
+            "tag": "select",
+            "outbounds": [ob["tag"] for ob in outbounds],
+            "interrupt_exist_connections": False
+        },
+        {
+            "type": "urltest",
+            "tag": "auto",
+            "outbounds": [ob["tag"] for ob in outbounds],
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": "5m",
+            "tolerance": 10
+        }
+    ],
+    "route": {
+        "rules": [
+            {"action": "sniff"},
+            {"protocol": "dns", "action": "hijack-dns"}
+        ],
+        "auto_detect_interface": True,
+        "final": "auto"  # Use the urltest group
     }
-] + [i for i in cfg.get("inbounds", []) if i.get("tag") != "socks-in"]
-
-# Ensure final route points to selector
-if "route" not in cfg:
-    cfg["route"] = {}
-cfg["route"]["final"] = "✅ Selector"
+}
 
 with open("config_singbox.json", "w") as f:
-    json.dump(cfg, f, indent=2)
+    json.dump(config, f, indent=2)
 
-print("config_singbox.json created with socks inbound on port 1080")
+print("config_singbox.json created with socks inbound and auto server selection.")
