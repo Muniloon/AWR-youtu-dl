@@ -1,4 +1,4 @@
-name: Setup Tools
+name: 🔄️Setup Tools
 
 on:
   workflow_dispatch:
