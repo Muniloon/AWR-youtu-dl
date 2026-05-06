@@ -33,11 +33,11 @@ jobs:
           ./bin/sing-box run -c config_singbox.json &
           sleep 5
 
-      - name: Download video via proxy
+      - name: Download video via proxy (single file with audio)
         run: |
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
-            -f "bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]" \
+            -f "best[height<=${{ github.event.inputs.quality }}]" \
             --merge-output-format mp4 \
             -o "downloads/%(title)s.%(ext)s" \
             --no-playlist \
