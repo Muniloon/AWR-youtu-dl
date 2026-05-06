@@ -20,6 +20,8 @@ jobs:
           else
             mkdir downloads
           fi
+          # Keep the folder tracked with a placeholder
+          touch downloads/.gitkeep
 
       - name: Commit and push removal
         run: |
