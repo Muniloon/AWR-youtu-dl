@@ -9,18 +9,17 @@ try:
     with open(input_file, "r") as f:
         outbounds = json.load(f)
 except FileNotFoundError:
-    # Fallback to old config.json if exists
     with open("config.json", "r") as f:
         outbounds = json.load(f)
 
-# Clean unsupported fields
+# Clean unsupported or deprecated fields for sing-box v1.11.0
 for ob in outbounds:
     ob.pop("tcp_fast_open", None)
+    ob.pop("alterId", None)                       # <-- جدید
     tls = ob.get("tls")
     if isinstance(tls, dict):
         tls.pop("record_fragment", None)
 
-# Build config with auto selector and urltest
 config = {
     "inbounds": [
         {
