@@ -21,7 +21,6 @@ def decode_vmess(link: str):
         "server_port": int(data["port"]),
         "uuid": data["id"],
         "security": data.get("scy", "auto"),
-        "alterId": int(data.get("aid", 0)),
         "transport": {},
     }
     net = data.get("net", "tcp")
