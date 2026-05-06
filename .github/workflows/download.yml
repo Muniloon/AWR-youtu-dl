@@ -28,8 +28,11 @@ jobs:
       - name: Set execute permissions for local tools
         run: chmod +x bin/yt-dlp_linux bin/sing-box
 
+      - name: Fetch public V2Ray configs from online sources
+        run: python3 scripts/fetch_configs.py
+
       - name: Add socks inbound to V2Ray config
-        run: python3 scripts/add_socks_inbound.py
+        run: python3 scripts/add_socks_inbound.py merged_outbounds.json
 
       - name: Start sing-box proxy
         run: |
@@ -70,8 +73,9 @@ jobs:
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
 
-      # ---------- Strategy 3: Use cookies (if secret exists) ----------
+      # ---------- Strategy 3: With cookies (if secret exists) ----------
       - name: Attempt 3 - With cookies
+        id: attempt3
         if: steps.attempt2.outcome == 'failure' && env.YT_COOKIES != ''
         continue-on-error: true
         run: |
