@@ -1,4 +1,4 @@
-name: 🎖️Downloader 
+name: YouTube Downloader with V2Ray Proxy
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       quality:
-        description: 'Quality (e.g. 720, 1080, best)'
+        description: 'Quality (e.g. 720, 1080, 2160, best)'
         required: false
         default: 'best'
         type: string
@@ -42,72 +42,87 @@ jobs:
       - name: Ensure ffmpeg is installed
         run: sudo apt-get install -y ffmpeg
 
-      # ---------- Strategy 1: Impersonate Chrome ----------
-      - name: Attempt 1 - Impersonate Chrome
-        id: attempt1
+      # =====================================================
+      # STRATEGY 1: Chrome impersonation (WITH Deno js engine)
+      # =====================================================
+      - name: Strategy 1 - Chrome impersonation with Deno
+        id: strategy1
         continue-on-error: true
         run: |
           if [ "${{ github.event.inputs.quality }}" = "best" ]; then
-            fmt="bestvideo+bestaudio/best"
+            fmt="bestvideo*+bestaudio/best*"
           else
-            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
+            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]*+bestaudio/best[height<=${{ github.event.inputs.quality }}]*"
           fi
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
+            --js-runtimes deno \
             --impersonate chrome \
             -f "$fmt" \
+            --format-sort res,+codec:vp9.1,+size \
             --merge-output-format mp4 \
             --ffmpeg-location /usr/bin/ffmpeg \
-            -o "downloads/%(title)s.%(ext)s" \
+            -o "downloads/%(id)s/%(title)s.%(ext)s" \
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
 
-      # ---------- Strategy 2: Android client fallback ----------
-      - name: Attempt 2 - Android client
-        id: attempt2
-        if: steps.attempt1.outcome == 'failure'
+      # =====================================================
+      # STRATEGY 2: Android/IOS client fallback (WITH Deno)
+      # =====================================================
+      - name: Strategy 2 - Android + IOS client with Deno
+        id: strategy2
+        if: steps.strategy1.outcome == 'failure'
         continue-on-error: true
         run: |
           if [ "${{ github.event.inputs.quality }}" = "best" ]; then
-            fmt="bestvideo+bestaudio/best"
+            fmt="bestvideo*+bestaudio/best*"
           else
-            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
+            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]*+bestaudio/best[height<=${{ github.event.inputs.quality }}]*"
           fi
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
+            --js-runtimes deno \
             -f "$fmt" \
+            --format-sort res,+codec:vp9.1,+size \
             --merge-output-format mp4 \
             --ffmpeg-location /usr/bin/ffmpeg \
             --extractor-args "youtube:player_client=android,ios" \
-            -o "downloads/%(title)s.%(ext)s" \
+            -o "downloads/%(id)s/%(title)s.%(ext)s" \
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
 
-      # ---------- Strategy 3: With cookies (if secret exists) ----------
-      - name: Attempt 3 - With cookies
-        id: attempt3
-        if: steps.attempt2.outcome == 'failure' && env.YT_COOKIES != ''
+      # =====================================================
+      # STRATEGY 3: Use cookies (if secret exists)
+      # =====================================================
+      - name: Strategy 3 - With cookies
+        id: strategy3
+        if: steps.strategy2.outcome == 'failure' && env.YT_COOKIES != ''
         continue-on-error: true
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
           if [ "${{ github.event.inputs.quality }}" = "best" ]; then
-            fmt="bestvideo+bestaudio/best"
+            fmt="bestvideo*+bestaudio/best*"
           else
-            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
+            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]*+bestaudio/best[height<=${{ github.event.inputs.quality }}]*"
           fi
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
             -f "$fmt" \
+            --format-sort res,+codec:vp9.1,+size \
             --merge-output-format mp4 \
             --ffmpeg-location /usr/bin/ffmpeg \
             --cookies cookies.txt \
-            -o "downloads/%(title)s.%(ext)s" \
+            -o "downloads/%(id)s/%(title)s.%(ext)s" \
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
         env:
           YT_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
 
+      # =====================================================
+      # VERIFY DOWNLOAD
+      # =====================================================
       - name: Check if download succeeded
+        if: always()
         run: |
           if [ -d downloads ] && [ "$(ls -A downloads)" ]; then
             echo "Download successful!"
@@ -117,26 +132,53 @@ jobs:
             exit 1
           fi
 
-      - name: Compress and split large files
+      # =====================================================
+      # ORGANIZE, VERIFY, COMPRESS & PUSH
+      # =====================================================
+      - name: Organize, verify and compress files
         if: success()
         run: |
-          cd downloads/
-          for f in *; do
-            if [ -f "$f" ]; then
-              zip -9 "${f}.zip" "$f"
-              find . -name "${f}.zip" -size +1900M | while read z; do
-                split -b 500M -d "$z" "${z%.zip}.part-"
-                rm "$z"
-              done
-              rm "$f"
-            fi
-          done
-          cd ..
+          # Create a random password for the zip file
+          ZIP_PASS=$(openssl rand -base64 16)
+          echo "ZIP_PASSWORD=${ZIP_PASS}" >> $GITHUB_ENV
 
-      - name: Commit and push video to repository
+          # Verify downloaded video with ffprobe
+          for f in downloads/**/*.mp4; do
+            ffprobe -v error -show_entries format=duration,bit_rate,size -of default=noprint_wrappers=1 "$f"
+          done
+
+          # Compress each subfolder with the random password
+          for dir in downloads/*/; do
+            folder_name=$(basename "$dir")
+            cd downloads
+            zip -P "${ZIP_PASS}" -r "${folder_name}.zip" "$folder_name"
+            # Split if larger than 1.9 GB
+            find . -name "${folder_name}.zip" -size +1900M | while read z; do
+              split -b 500M -d "$z" "${z%.zip}.part-"
+              rm "$z"
+            done
+            rm -rf "$folder_name"
+            cd ..
+          done
+
+      - name: Optimize Git and commit
+        if: success()
         run: |
+          # Git optimizations for large files
+          git config --global http.postBuffer 524288000
+          git config --global pack.packSizeLimit 1g
+          git config --global pack.deltaCacheSize 256m
+          git config --global pack.windowMemory 256m
+
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add downloads/
           git commit -m "Add downloaded video $(date +%Y%m%d_%H%M%S)" || echo "Nothing to commit"
           git push
+
+      - name: Print password
+        if: success()
+        run: |
+          echo "=============================================="
+          echo "Zip file password: ${{ env.ZIP_PASSWORD }}"
+          echo "=============================================="
