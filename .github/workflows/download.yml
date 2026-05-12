@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set execute permissions for local tools
-        run: chmod +x bin/yt-dlp_linux bin/sing-box
+        run: chmod +x bin/yt-dlp_linux bin/sing-box bin/ffmpeg bin/ffprobe
 
       - name: Fetch public V2Ray configs from online sources
         run: python3 scripts/fetch_configs.py
@@ -39,9 +39,6 @@ jobs:
           ./bin/sing-box run -c config_singbox.json &
           sleep 5
 
-      - name: Ensure ffmpeg is installed
-        run: sudo apt-get install -y ffmpeg
-
       # =====================================================
       # STRATEGY 1: Chrome impersonation (WITH Deno js engine)
       # =====================================================
@@ -50,18 +47,17 @@ jobs:
         continue-on-error: true
         run: |
           if [ "${{ github.event.inputs.quality }}" = "best" ]; then
-            fmt="bestvideo*+bestaudio/best*"
+            fmt="bestvideo+bestaudio/best"
           else
-            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]*+bestaudio/best[height<=${{ github.event.inputs.quality }}]*"
+            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
           fi
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
             --js-runtimes deno \
             --impersonate chrome \
             -f "$fmt" \
-            --format-sort res,+codec:vp9.1,+size \
             --merge-output-format mp4 \
-            --ffmpeg-location /usr/bin/ffmpeg \
+            --ffmpeg-location ./bin/ffmpeg \
             -o "downloads/%(id)s/%(title)s.%(ext)s" \
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
@@ -75,17 +71,16 @@ jobs:
         continue-on-error: true
         run: |
           if [ "${{ github.event.inputs.quality }}" = "best" ]; then
-            fmt="bestvideo*+bestaudio/best*"
+            fmt="bestvideo+bestaudio/best"
           else
-            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]*+bestaudio/best[height<=${{ github.event.inputs.quality }}]*"
+            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
           fi
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
             --js-runtimes deno \
             -f "$fmt" \
-            --format-sort res,+codec:vp9.1,+size \
             --merge-output-format mp4 \
-            --ffmpeg-location /usr/bin/ffmpeg \
+            --ffmpeg-location ./bin/ffmpeg \
             --extractor-args "youtube:player_client=android,ios" \
             -o "downloads/%(id)s/%(title)s.%(ext)s" \
             --no-playlist \
@@ -101,16 +96,15 @@ jobs:
         run: |
           echo "${{ secrets.YOUTUBE_COOKIES }}" > cookies.txt
           if [ "${{ github.event.inputs.quality }}" = "best" ]; then
-            fmt="bestvideo*+bestaudio/best*"
+            fmt="bestvideo+bestaudio/best"
           else
-            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]*+bestaudio/best[height<=${{ github.event.inputs.quality }}]*"
+            fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
           fi
           ./bin/yt-dlp_linux \
             --proxy socks5://127.0.0.1:1080 \
             -f "$fmt" \
-            --format-sort res,+codec:vp9.1,+size \
             --merge-output-format mp4 \
-            --ffmpeg-location /usr/bin/ffmpeg \
+            --ffmpeg-location ./bin/ffmpeg \
             --cookies cookies.txt \
             -o "downloads/%(id)s/%(title)s.%(ext)s" \
             --no-playlist \
@@ -122,9 +116,8 @@ jobs:
       # VERIFY DOWNLOAD
       # =====================================================
       - name: Check if download succeeded
-        if: always()
         run: |
-          if [ -d downloads ] && [ "$(ls -A downloads)" ]; then
+          if [ -d downloads ] && [ "$(ls -A downloads 2>/dev/null)" ]; then
             echo "Download successful!"
             ls -lh downloads/
           else
@@ -142,10 +135,12 @@ jobs:
           ZIP_PASS=$(openssl rand -base64 16)
           echo "ZIP_PASSWORD=${ZIP_PASS}" >> $GITHUB_ENV
 
-          # Verify downloaded video with ffprobe
-          for f in downloads/**/*.mp4; do
-            ffprobe -v error -show_entries format=duration,bit_rate,size -of default=noprint_wrappers=1 "$f"
-          done
+          # Verify downloaded video with ffprobe (only if mp4 files exist)
+          if ls downloads/**/*.mp4 1>/dev/null 2>&1; then
+            for f in downloads/**/*.mp4; do
+              ./bin/ffprobe -v error -show_entries format=duration,bit_rate,size -of default=noprint_wrappers=1 "$f"
+            done
+          fi
 
           # Compress each subfolder with the random password
           for dir in downloads/*/; do
