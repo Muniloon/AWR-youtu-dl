@@ -8,10 +8,19 @@ on:
         required: true
         type: string
       quality:
-        description: 'Quality (e.g. 720, 1080, 2160, best)'
+        description: 'Quality'
         required: false
         default: 'best'
-        type: string
+        type: choice
+        options:
+          - '2160'
+          - '1440'
+          - '1080'
+          - '720'
+          - '480'
+          - '360'
+          - '144'
+          - 'best'
 
 permissions:
   contents: write
@@ -146,14 +155,100 @@ jobs:
           for dir in downloads/*/; do
             folder_name=$(basename "$dir")
             cd downloads
+
+            # Save password next to the zip file for user convenience
+            echo "${ZIP_PASS}" > "${folder_name}_password.txt"
+
             zip -P "${ZIP_PASS}" -r "${folder_name}.zip" "$folder_name"
-            # Split if larger than 1.9 GB
-            find . -name "${folder_name}.zip" -size +1900M | while read z; do
-              split -b 500M -d "$z" "${z%.zip}.part-"
+
+            # Split into 45 MB chunks for easier download
+            find . -name "${folder_name}.zip" -size +40M | while read z; do
+              split -b 45M -d "$z" "${z%.zip}.part-"
               rm "$z"
             done
+
             rm -rf "$folder_name"
             cd ..
+          done
+
+      # =====================================================
+      # GENERATE INFO FILES AND INDEX
+      # =====================================================
+      - name: Generate video info pages and update index
+        if: success()
+        run: |
+          # Extract repository details
+          REPO=${{ github.repository }}
+          BRANCH="main"
+
+          # Loop over video directories left after download (they have been removed, but we stored folder_name earlier; we can re-detect using the zip part names)
+          for part in downloads/*.part-00 download/*.zip; do
+            # Determine base name (video ID)
+            # Part files have name like "VIDEOID.mp4.part-00", zip files "VIDEOID.mp4.zip"
+            # We need to extract VIDEOID
+            base=$(basename "$part")
+            # If it's a zip file
+            if [[ "$base" == *.zip ]]; then
+              video_id="${base%.zip}"
+            elif [[ "$base" == *.part-00 ]]; then
+              video_id=$(echo "$base" | sed 's/\.mp4\.part-00//')
+            else
+              continue
+            fi
+
+            # Get video title using yt-dlp (offline, from cache or re-download? better to extract from existing info)
+            # We can use the password file which contains the video ID, or we can use yt-dlp to get title (it will be quick)
+            TITLE=$(./bin/yt-dlp_linux --proxy socks5://127.0.0.1:1080 --get-title "https://www.youtube.com/watch?v=${video_id}" 2>/dev/null || echo "Unknown")
+            QUALITY="${{ github.event.inputs.quality }}"
+            ORIGINAL_URL="https://www.youtube.com/watch?v=${video_id}"
+
+            # Count parts
+            PARTS=()
+            for p in downloads/${video_id}.mp4.part-*; do
+              if [ -f "$p" ]; then
+                PARTS+=("$(basename "$p")")
+              fi
+            done
+
+            # If no parts, maybe it's just the zip (no split)
+            if [ ${#PARTS[@]} -eq 0 ]; then
+              ZIP_FILE="downloads/${video_id}.mp4.zip"
+            else
+              ZIP_FILE=""
+            fi
+
+            # Create video info markdown
+            INFO_FILE="downloads/${video_id}.md"
+            echo "# ${TITLE}" > "$INFO_FILE"
+            echo "" >> "$INFO_FILE"
+            echo "- **Original URL:** ${ORIGINAL_URL}" >> "$INFO_FILE"
+            echo "- **Quality:** ${QUALITY}" >> "$INFO_FILE"
+            echo "- **Video ID:** ${video_id}" >> "$INFO_FILE"
+            echo "- **Password:** \`${ZIP_PASS}\`" >> "$INFO_FILE"
+            echo "" >> "$INFO_FILE"
+            echo "## Download" >> "$INFO_FILE"
+            echo "" >> "$INFO_FILE"
+            if [ -n "$ZIP_FILE" ]; then
+              echo "- [Full ZIP](https://raw.githubusercontent.com/${REPO}/${BRANCH}/${ZIP_FILE})" >> "$INFO_FILE"
+            else
+              echo "File split into ${#PARTS[@]} parts:" >> "$INFO_FILE"
+              for p in "${PARTS[@]}"; do
+                echo "- [${p}](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/${p})" >> "$INFO_FILE"
+              done
+              echo "" >> "$INFO_FILE"
+              echo "To combine the parts, run: \`cat ${video_id}.mp4.part-* > ${video_id}.mp4.zip\`" >> "$INFO_FILE"
+            fi
+
+            # Update index
+            INDEX="downloads/index.md"
+            if [ ! -f "$INDEX" ]; then
+              echo "# Downloaded Videos" > "$INDEX"
+              echo "" >> "$INDEX"
+              echo "| Title | Quality | Video ID | Info |" >> "$INDEX"
+              echo "|-------|---------|----------|------|" >> "$INDEX"
+            fi
+            echo "| [${TITLE}](https://www.youtube.com/watch?v=${video_id}) | ${QUALITY} | ${video_id} | [Details](./${video_id}.md) |" >> "$INDEX"
+
           done
 
       - name: Optimize Git and commit
@@ -176,4 +271,5 @@ jobs:
         run: |
           echo "=============================================="
           echo "Zip file password: ${{ env.ZIP_PASSWORD }}"
+          echo "Also saved in video info file and password.txt"
           echo "=============================================="
