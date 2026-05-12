@@ -1,4 +1,4 @@
-name: 🔄️Setup Tools
+name: Setup Tools
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
       - name: Create bin directory
         run: mkdir -p bin
 
-      - name: Download yt-dlp
+      - name: Download yt-dlp standalone binary
         run: |
           curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o bin/yt-dlp_linux
           chmod +x bin/yt-dlp_linux
@@ -27,10 +27,18 @@ jobs:
           cp sing-box-*/sing-box bin/
           chmod +x bin/sing-box
 
+      - name: Download ffmpeg and ffprobe (static builds)
+        run: |
+          curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o ffmpeg.tar.xz
+          tar xJf ffmpeg.tar.xz
+          cp ffmpeg-*/ffmpeg bin/
+          cp ffmpeg-*/ffprobe bin/
+          chmod +x bin/ffmpeg bin/ffprobe
+
       - name: Commit and push tools
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
           git add bin/
-          git commit -m "Add tools: yt-dlp and sing-box" || echo "Nothing to commit"
+          git commit -m "Add tools: yt-dlp, sing-box, ffmpeg, ffprobe" || echo "Nothing to commit"
           git push
