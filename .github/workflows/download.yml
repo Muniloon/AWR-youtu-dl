@@ -1,4 +1,4 @@
-name: YouTube Downloader with V2Ray Proxy
+name: YouTube Downloader with WARP Proxy
 
 on:
   workflow_dispatch:
@@ -35,21 +35,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set execute permissions for local tools
-        run: chmod +x bin/yt-dlp_linux bin/sing-box bin/ffmpeg bin/ffprobe
+        run: chmod +x bin/yt-dlp_linux bin/ffmpeg bin/ffprobe
 
-      - name: Fetch public V2Ray configs from online sources
-        run: python3 scripts/fetch_configs.py
-
-      - name: Add socks inbound to V2Ray config
-        run: python3 scripts/add_socks_inbound.py merged_outbounds.json
-
-      - name: Start sing-box proxy
+      - name: Start WARP SOCKS5 proxy
         run: |
-          ./bin/sing-box run -c config_singbox.json &
-          sleep 5
+          docker run -d --name warp-socks -p 1080:1080 e7h4n/warp-socks
+          # Wait for the proxy to be ready (up to 30 seconds)
+          for i in {1..30}; do
+            if curl -x socks5h://127.0.0.1:1080 -s https://www.google.com >/dev/null; then
+              echo "WARP proxy is ready"
+              break
+            fi
+            sleep 1
+          done
 
       # =====================================================
-      # STRATEGY 1: Chrome impersonation (WITH Deno js engine)
+      # STRATEGY 1: Chrome impersonation
       # =====================================================
       - name: Strategy 1 - Chrome impersonation with Deno
         id: strategy1
@@ -72,7 +73,7 @@ jobs:
             "${{ github.event.inputs.video_url }}"
 
       # =====================================================
-      # STRATEGY 2: Android/IOS client fallback (WITH Deno)
+      # STRATEGY 2: Android/IOS client fallback
       # =====================================================
       - name: Strategy 2 - Android + IOS client with Deno
         id: strategy2
@@ -140,121 +141,32 @@ jobs:
       - name: Organize, verify and compress files
         if: success()
         run: |
-          # Create a random password for the zip file
           ZIP_PASS=$(openssl rand -base64 16)
           echo "ZIP_PASSWORD=${ZIP_PASS}" >> $GITHUB_ENV
 
-          # Verify downloaded video with ffprobe (only if mp4 files exist)
           if ls downloads/**/*.mp4 1>/dev/null 2>&1; then
             for f in downloads/**/*.mp4; do
+              echo "Verifying $f"
               ./bin/ffprobe -v error -show_entries format=duration,bit_rate,size -of default=noprint_wrappers=1 "$f"
             done
-          fi
 
-          # Compress each subfolder with the random password
-          for dir in downloads/*/; do
-            folder_name=$(basename "$dir")
-            cd downloads
-
-            # Save password next to the zip file for user convenience
-            echo "${ZIP_PASS}" > "${folder_name}_password.txt"
-
-            zip -P "${ZIP_PASS}" -r "${folder_name}.zip" "$folder_name"
-
-            # Split into 45 MB chunks for easier download
-            find . -name "${folder_name}.zip" -size +40M | while read z; do
-              split -b 45M -d "$z" "${z%.zip}.part-"
-              rm "$z"
-            done
-
-            rm -rf "$folder_name"
-            cd ..
-          done
-
-      # =====================================================
-      # GENERATE INFO FILES AND INDEX
-      # =====================================================
-      - name: Generate video info pages and update index
-        if: success()
-        run: |
-          # Extract repository details
-          REPO=${{ github.repository }}
-          BRANCH="main"
-
-          # Loop over video directories left after download (they have been removed, but we stored folder_name earlier; we can re-detect using the zip part names)
-          for part in downloads/*.part-00 download/*.zip; do
-            # Determine base name (video ID)
-            # Part files have name like "VIDEOID.mp4.part-00", zip files "VIDEOID.mp4.zip"
-            # We need to extract VIDEOID
-            base=$(basename "$part")
-            # If it's a zip file
-            if [[ "$base" == *.zip ]]; then
-              video_id="${base%.zip}"
-            elif [[ "$base" == *.part-00 ]]; then
-              video_id=$(echo "$base" | sed 's/\.mp4\.part-00//')
-            else
-              continue
-            fi
-
-            # Get video title using yt-dlp (offline, from cache or re-download? better to extract from existing info)
-            # We can use the password file which contains the video ID, or we can use yt-dlp to get title (it will be quick)
-            TITLE=$(./bin/yt-dlp_linux --proxy socks5://127.0.0.1:1080 --get-title "https://www.youtube.com/watch?v=${video_id}" 2>/dev/null || echo "Unknown")
-            QUALITY="${{ github.event.inputs.quality }}"
-            ORIGINAL_URL="https://www.youtube.com/watch?v=${video_id}"
-
-            # Count parts
-            PARTS=()
-            for p in downloads/${video_id}.mp4.part-*; do
-              if [ -f "$p" ]; then
-                PARTS+=("$(basename "$p")")
-              fi
-            done
-
-            # If no parts, maybe it's just the zip (no split)
-            if [ ${#PARTS[@]} -eq 0 ]; then
-              ZIP_FILE="downloads/${video_id}.mp4.zip"
-            else
-              ZIP_FILE=""
-            fi
-
-            # Create video info markdown
-            INFO_FILE="downloads/${video_id}.md"
-            echo "# ${TITLE}" > "$INFO_FILE"
-            echo "" >> "$INFO_FILE"
-            echo "- **Original URL:** ${ORIGINAL_URL}" >> "$INFO_FILE"
-            echo "- **Quality:** ${QUALITY}" >> "$INFO_FILE"
-            echo "- **Video ID:** ${video_id}" >> "$INFO_FILE"
-            echo "- **Password:** \`${ZIP_PASS}\`" >> "$INFO_FILE"
-            echo "" >> "$INFO_FILE"
-            echo "## Download" >> "$INFO_FILE"
-            echo "" >> "$INFO_FILE"
-            if [ -n "$ZIP_FILE" ]; then
-              echo "- [Full ZIP](https://raw.githubusercontent.com/${REPO}/${BRANCH}/${ZIP_FILE})" >> "$INFO_FILE"
-            else
-              echo "File split into ${#PARTS[@]} parts:" >> "$INFO_FILE"
-              for p in "${PARTS[@]}"; do
-                echo "- [${p}](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/${p})" >> "$INFO_FILE"
+            for dir in downloads/*/; do
+              folder_name=$(basename "$dir")
+              cd downloads
+              echo "${ZIP_PASS}" > "${folder_name}_password.txt"
+              zip -P "${ZIP_PASS}" -r "${folder_name}.zip" "$folder_name"
+              find . -name "${folder_name}.zip" -size +40M | while read z; do
+                split -b 45M -d "$z" "${z%.zip}.part-"
+                rm "$z"
               done
-              echo "" >> "$INFO_FILE"
-              echo "To combine the parts, run: \`cat ${video_id}.mp4.part-* > ${video_id}.mp4.zip\`" >> "$INFO_FILE"
-            fi
-
-            # Update index
-            INDEX="downloads/index.md"
-            if [ ! -f "$INDEX" ]; then
-              echo "# Downloaded Videos" > "$INDEX"
-              echo "" >> "$INDEX"
-              echo "| Title | Quality | Video ID | Info |" >> "$INDEX"
-              echo "|-------|---------|----------|------|" >> "$INDEX"
-            fi
-            echo "| [${TITLE}](https://www.youtube.com/watch?v=${video_id}) | ${QUALITY} | ${video_id} | [Details](./${video_id}.md) |" >> "$INDEX"
-
-          done
+              rm -rf "$folder_name"
+              cd ..
+            done
+          fi
 
       - name: Optimize Git and commit
         if: success()
         run: |
-          # Git optimizations for large files
           git config --global http.postBuffer 524288000
           git config --global pack.packSizeLimit 1g
           git config --global pack.deltaCacheSize 256m
@@ -269,7 +181,9 @@ jobs:
       - name: Print password
         if: success()
         run: |
-          echo "=============================================="
-          echo "Zip file password: ${{ env.ZIP_PASSWORD }}"
-          echo "Also saved in video info file and password.txt"
-          echo "=============================================="
+          if ls downloads/*_password.txt 1>/dev/null 2>&1; then
+            echo "=============================================="
+            echo "Zip file password: ${{ env.ZIP_PASSWORD }}"
+            echo "Also saved as *_password.txt in downloads/"
+            echo "=============================================="
+          fi
