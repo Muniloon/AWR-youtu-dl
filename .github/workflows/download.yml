@@ -40,8 +40,8 @@ jobs:
       - name: Start WARP SOCKS5 proxy (standalone)
         run: |
           nohup ./bin/warp socks5 > /dev/null 2>&1 &
-          # Wait up to 20 seconds for proxy to be ready
-          for i in $(seq 1 20); do
+          # Wait up to 30 seconds for proxy to be ready
+          for i in $(seq 1 30); do
             if curl -x socks5h://127.0.0.1:40000 -s https://www.google.com >/dev/null; then
               echo "WARP proxy is ready on port 40000"
               break
@@ -123,15 +123,18 @@ jobs:
           YT_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
 
       # =====================================================
-      # VERIFY DOWNLOAD
+      # VERIFY DOWNLOAD (IGNORE .gitkeep)
       # =====================================================
       - name: Check if download succeeded
         run: |
+          # Remove .gitkeep if it exists, to avoid false positive
+          rm -f downloads/.gitkeep
+
           if [ -d downloads ] && [ "$(ls -A downloads 2>/dev/null)" ]; then
             echo "Download successful!"
             ls -lh downloads/
           else
-            echo "Download failed."
+            echo "Download failed. Make sure WARP proxy is running and you have valid cookies."
             exit 1
           fi
 
