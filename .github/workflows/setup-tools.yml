@@ -20,13 +20,6 @@ jobs:
           curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o bin/yt-dlp_linux
           chmod +x bin/yt-dlp_linux
 
-      - name: Download sing-box
-        run: |
-          curl -L https://github.com/SagerNet/sing-box/releases/download/v1.11.0/sing-box-1.11.0-linux-amd64.tar.gz -o sing-box.tar.gz
-          tar xzf sing-box.tar.gz
-          cp sing-box-*/sing-box bin/
-          chmod +x bin/sing-box
-
       - name: Download ffmpeg and ffprobe (static builds)
         run: |
           curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o ffmpeg.tar.xz
@@ -35,10 +28,35 @@ jobs:
           cp ffmpeg-*/ffprobe bin/
           chmod +x bin/ffmpeg bin/ffprobe
 
+      - name: Install Cloudflare WARP client
+        run: |
+          # Add Cloudflare GPG key and repo
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt-get update -qq
+          sudo apt-get install -y cloudflare-warp
+
+          # Save a small script to start WARP in proxy mode (to be used by download.yml)
+          cat <<'EOF' > scripts/start-warp.sh
+          #!/bin/bash
+          warp-cli --accept-tos register >/dev/null 2>&1 || true
+          warp-cli --accept-tos set-mode proxy >/dev/null 2>&1
+          warp-cli --accept-tos connect >/dev/null 2>&1
+          # wait for connection
+          for i in $(seq 1 20); do
+            if warp-cli --accept-tos status | grep -q "Connected"; then
+              echo "WARP connected. SOCKS5 proxy on 127.0.0.1:40000"
+              break
+            fi
+            sleep 1
+          done
+          EOF
+          chmod +x scripts/start-warp.sh
+
       - name: Commit and push tools
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add bin/
-          git commit -m "Add tools: yt-dlp, sing-box, ffmpeg, ffprobe" || echo "Nothing to commit"
+          git add bin/ scripts/
+          git commit -m "Add tools: yt-dlp, ffmpeg, ffprobe, WARP client" || echo "Nothing to commit"
           git push
