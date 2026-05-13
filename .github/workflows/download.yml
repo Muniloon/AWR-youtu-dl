@@ -76,7 +76,7 @@ jobs:
             -f "$fmt" \
             --merge-output-format mp4 \
             --ffmpeg-location ./bin/ffmpeg \
-            -o "downloads/%(id)s/%(title)s.%(ext)s" \
+            -o "downloads/files/%(id)s/%(title)s.%(ext)s" \
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
 
@@ -100,7 +100,7 @@ jobs:
             --merge-output-format mp4 \
             --ffmpeg-location ./bin/ffmpeg \
             --extractor-args "youtube:player_client=android,ios" \
-            -o "downloads/%(id)s/%(title)s.%(ext)s" \
+            -o "downloads/files/%(id)s/%(title)s.%(ext)s" \
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
 
@@ -124,7 +124,7 @@ jobs:
             --merge-output-format mp4 \
             --ffmpeg-location ./bin/ffmpeg \
             --cookies cookies.txt \
-            -o "downloads/%(id)s/%(title)s.%(ext)s" \
+            -o "downloads/files/%(id)s/%(title)s.%(ext)s" \
             --no-playlist \
             "${{ github.event.inputs.video_url }}"
         env:
@@ -135,10 +135,10 @@ jobs:
       # =====================================================
       - name: Check if download succeeded
         run: |
-          rm -f downloads/.gitkeep
-          if [ -d downloads ] && [ "$(ls -A downloads 2>/dev/null)" ]; then
+          rm -f downloads/files/.gitkeep
+          if [ -d downloads/files ] && [ "$(ls -A downloads/files 2>/dev/null)" ]; then
             echo "Download successful!"
-            ls -lh downloads/
+            ls -lh downloads/files/
           else
             echo "Download failed."
             exit 1
@@ -153,15 +153,15 @@ jobs:
           ZIP_PASS=$(openssl rand -base64 16)
           echo "ZIP_PASSWORD=${ZIP_PASS}" >> $GITHUB_ENV
 
-          if ls downloads/**/*.mp4 1>/dev/null 2>&1; then
-            for f in downloads/**/*.mp4; do
+          if ls downloads/files/**/*.mp4 1>/dev/null 2>&1; then
+            for f in downloads/files/**/*.mp4; do
               echo "Verifying $f"
               ./bin/ffprobe -v error -show_entries format=duration,bit_rate,size -of default=noprint_wrappers=1 "$f"
             done
 
-            for dir in downloads/*/; do
+            for dir in downloads/files/*/; do
               folder_name=$(basename "$dir")
-              cd downloads
+              cd downloads/files
               echo "${ZIP_PASS}" > "${folder_name}_password.txt"
               zip -P "${ZIP_PASS}" -r "${folder_name}.zip" "$folder_name"
               find . -name "${folder_name}.zip" -size +40M | while read z; do
@@ -169,7 +169,7 @@ jobs:
                 rm "$z"
               done
               rm -rf "$folder_name"
-              cd ..
+              cd ../..
             done
           fi
 
@@ -182,18 +182,19 @@ jobs:
           REPO=${{ github.repository }}
           BRANCH="main"
 
-          # Create header for the index file
+          # Ensure the base folder exists
+          mkdir -p downloads/files
+
           INDEX="downloads/index.md"
           echo "# Downloaded Videos" > "$INDEX"
           echo "" >> "$INDEX"
-          echo "| # | Title | Quality | Video ID | Details |" >> "$INDEX"
-          echo "|---|-------|---------|----------|---------|" >> "$INDEX"
+          echo "| # | Title | Quality | Details |" >> "$INDEX"
+          echo "|---|-------|---------|---------|" >> "$INDEX"
 
-          # Loop over all video ID folders (we have them as zip or part files)
-          for zip_or_part in downloads/*.zip downloads/*.part-00; do
+          count=0
+          # Loop over all zip or part files in downloads/files/
+          for zip_or_part in downloads/files/*.zip downloads/files/*.part-00; do
             [ -f "$zip_or_part" ] || continue
-
-            # Extract the video ID from the file name
             base=$(basename "$zip_or_part")
             if [[ "$base" == *.zip ]]; then
               video_id="${base%.zip}"
@@ -203,19 +204,19 @@ jobs:
               continue
             fi
 
-            # Get video title (using yt-dlp, may require proxy still active)
+            # Get video title
             TITLE=$(./bin/yt-dlp_linux --proxy socks5://127.0.0.1:1080 --get-title "https://www.youtube.com/watch?v=${video_id}" 2>/dev/null || echo "Unknown Title")
             QUALITY="${{ github.event.inputs.quality }}"
             ORIGINAL_URL="https://www.youtube.com/watch?v=${video_id}"
 
             # Count parts
             PARTS=()
-            for p in downloads/${video_id}.mp4.part-*; do
+            for p in downloads/files/${video_id}.mp4.part-*; do
               [ -f "$p" ] && PARTS+=("$(basename "$p")")
             done
 
-            # --- Create video info page ---
-            INFO_PAGE="downloads/${video_id}.md"
+            # Create video info README.md inside downloads/files/ (named with video_id)
+            INFO_PAGE="downloads/files/${video_id}_info.md"
             echo "# ${TITLE}" > "$INFO_PAGE"
             echo "" >> "$INFO_PAGE"
             echo "- **Original URL:** [${ORIGINAL_URL}](${ORIGINAL_URL})" >> "$INFO_PAGE"
@@ -230,7 +231,7 @@ jobs:
               echo "File split into ${#PARTS[@]} parts:" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
               for p in "${PARTS[@]}"; do
-                echo "- [${p}](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/${p})" >> "$INFO_PAGE"
+                echo "- [${p}](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/files/${p})" >> "$INFO_PAGE"
               done
               echo "" >> "$INFO_PAGE"
               echo "To combine the parts, run:" >> "$INFO_PAGE"
@@ -240,13 +241,12 @@ jobs:
             else
               echo "## Download" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
-              echo "[Full ZIP](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/${video_id}.mp4.zip)" >> "$INFO_PAGE"
+              echo "[Full ZIP](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/files/${video_id}.mp4.zip)" >> "$INFO_PAGE"
             fi
 
-            # --- Add row to index ---
-            # Get row number
-            ROW=$(( $(wc -l < "$INDEX") - 3 ))
-            echo "| ${ROW} | [${TITLE}](https://www.youtube.com/watch?v=${video_id}) | ${QUALITY} | ${video_id} | [Details](./${video_id}.md) |" >> "$INDEX"
+            # Add to index (link to info page)
+            count=$((count + 1))
+            echo "| ${count} | [${TITLE}](./files/${video_id}_info.md) | ${QUALITY} | [Details](./files/${video_id}_info.md) |" >> "$INDEX"
           done
 
       - name: Optimize Git and commit
@@ -266,9 +266,9 @@ jobs:
       - name: Print password
         if: success()
         run: |
-          if ls downloads/*_password.txt 1>/dev/null 2>&1; then
+          if ls downloads/files/*_password.txt 1>/dev/null 2>&1; then
             echo "=============================================="
             echo "Zip file password: ${{ env.ZIP_PASSWORD }}"
-            echo "Also saved in video info page and password.txt"
+            echo "Also saved in video info pages and password.txt files"
             echo "=============================================="
           fi
