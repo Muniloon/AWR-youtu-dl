@@ -145,12 +145,14 @@ jobs:
           fi
 
       # =====================================================
-      # ORGANIZE, VERIFY, COMPRESS & PUSH
+      # ORGANIZE, VERIFY, COMPRESS & SAVE PASSWORD
       # =====================================================
       - name: Organize, verify and compress files
         if: success()
         run: |
+          # Generate a random password and store it in a file for later steps
           ZIP_PASS=$(openssl rand -base64 16)
+          echo "$ZIP_PASS" > downloads/files/global_password.txt
           echo "ZIP_PASSWORD=${ZIP_PASS}" >> $GITHUB_ENV
 
           if ls downloads/files/**/*.mp4 1>/dev/null 2>&1; then
@@ -162,8 +164,10 @@ jobs:
             for dir in downloads/files/*/; do
               folder_name=$(basename "$dir")
               cd downloads/files
-              echo "${ZIP_PASS}" > "${folder_name}_password.txt"
-              zip -P "${ZIP_PASS}" -r "${folder_name}.zip" "$folder_name"
+              # Save per-folder password as well (convenience)
+              echo "$ZIP_PASS" > "${folder_name}_password.txt"
+              zip -P "$ZIP_PASS" -r "${folder_name}.zip" "$folder_name"
+              # Split into 45 MB chunks if needed
               find . -name "${folder_name}.zip" -size +40M | while read z; do
                 split -b 45M -d "$z" "${z%.zip}.part-"
                 rm "$z"
@@ -182,8 +186,8 @@ jobs:
           REPO=${{ github.repository }}
           BRANCH="main"
 
-          # Ensure the base folder exists
-          mkdir -p downloads/files
+          # Read the global password
+          ZIP_PASS=$(cat downloads/files/global_password.txt)
 
           INDEX="downloads/index.md"
           echo "# Downloaded Videos" > "$INDEX"
@@ -199,7 +203,7 @@ jobs:
             if [[ "$base" == *.zip ]]; then
               video_id="${base%.zip}"
             elif [[ "$base" == *.part-00 ]]; then
-              video_id=$(echo "$base" | sed 's/\.mp4\.part-00//')
+              video_id=$(echo "$base" | sed 's/\.zip\.part-00//')
             else
               continue
             fi
@@ -209,13 +213,7 @@ jobs:
             QUALITY="${{ github.event.inputs.quality }}"
             ORIGINAL_URL="https://www.youtube.com/watch?v=${video_id}"
 
-            # Count parts
-            PARTS=()
-            for p in downloads/files/${video_id}.mp4.part-*; do
-              [ -f "$p" ] && PARTS+=("$(basename "$p")")
-            done
-
-            # Create video info README.md inside downloads/files/ (named with video_id)
+            # Build download links based on actual files
             INFO_PAGE="downloads/files/${video_id}_info.md"
             echo "# ${TITLE}" > "$INFO_PAGE"
             echo "" >> "$INFO_PAGE"
@@ -225,26 +223,28 @@ jobs:
             echo "- **Zip Password:** \`${ZIP_PASS}\`" >> "$INFO_PAGE"
             echo "" >> "$INFO_PAGE"
 
-            if [ ${#PARTS[@]} -gt 0 ]; then
+            # If split files exist, list them; otherwise show the single zip link
+            if ls downloads/files/${video_id}.zip.part-00 1>/dev/null 2>&1; then
               echo "## Download Parts" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
-              echo "File split into ${#PARTS[@]} parts:" >> "$INFO_PAGE"
+              echo "File split into multiple parts:" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
-              for p in "${PARTS[@]}"; do
-                echo "- [${p}](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/files/${p})" >> "$INFO_PAGE"
+              for p in downloads/files/${video_id}.zip.part-*; do
+                pname=$(basename "$p")
+                echo "- [${pname}](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/files/${pname})" >> "$INFO_PAGE"
               done
               echo "" >> "$INFO_PAGE"
               echo "To combine the parts, run:" >> "$INFO_PAGE"
               echo "\`\`\`bash" >> "$INFO_PAGE"
-              echo "cat ${video_id}.mp4.part-* > ${video_id}.mp4.zip" >> "$INFO_PAGE"
+              echo "cat ${video_id}.zip.part-* > ${video_id}.zip" >> "$INFO_PAGE"
               echo "\`\`\`" >> "$INFO_PAGE"
             else
               echo "## Download" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
-              echo "[Full ZIP](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/files/${video_id}.mp4.zip)" >> "$INFO_PAGE"
+              echo "[Full ZIP](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/files/${video_id}.zip)" >> "$INFO_PAGE"
             fi
 
-            # Add to index (link to info page)
+            # Add row to index
             count=$((count + 1))
             echo "| ${count} | [${TITLE}](./files/${video_id}_info.md) | ${QUALITY} | [Details](./files/${video_id}_info.md) |" >> "$INDEX"
           done
@@ -266,9 +266,9 @@ jobs:
       - name: Print password
         if: success()
         run: |
-          if ls downloads/files/*_password.txt 1>/dev/null 2>&1; then
+          if [ -f downloads/files/global_password.txt ]; then
             echo "=============================================="
-            echo "Zip file password: ${{ env.ZIP_PASSWORD }}"
+            echo "Zip file password: $(cat downloads/files/global_password.txt)"
             echo "Also saved in video info pages and password.txt files"
             echo "=============================================="
           fi
