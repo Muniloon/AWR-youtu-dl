@@ -13,10 +13,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Remove all files from downloads/
+      - name: Remove all downloaded files and index
         run: |
           if [ -d downloads ]; then
             rm -rf downloads/*
+            # Re-create .gitkeep so the folder stays tracked in git
             touch downloads/.gitkeep
           else
             mkdir downloads
