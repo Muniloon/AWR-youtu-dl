@@ -37,13 +37,11 @@ jobs:
       - name: Set execute permissions for local tools
         run: chmod +x bin/yt-dlp_linux bin/ffmpeg bin/ffprobe
 
-      - name: Start WARP SOCKS5 proxy (cloudflare/warp)
+      - name: Start WARP SOCKS5 proxy (native)
         run: |
-          docker run -d --name warp-socks -p 1080:1080 cloudflare/warp
-          # Wait up to 30 seconds for the proxy to become ready
-          timeout 30 bash -c 'until curl -x socks5h://127.0.0.1:1080 -s https://www.google.com >/dev/null; do sleep 1; done' \
-            && echo "WARP proxy is ready" \
-            || echo "WARNING: WARP proxy may not be ready, continuing anyway..."
+          sudo apt-get update -qq
+          sudo apt-get install -y cloudflare-warp   # already installed via setup, but this ensures it's present
+          bash scripts/start-warp.sh
 
       # =====================================================
       # STRATEGY 1: Chrome impersonation (WITH Deno js engine)
@@ -58,7 +56,7 @@ jobs:
             fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
           fi
           ./bin/yt-dlp_linux \
-            --proxy socks5://127.0.0.1:1080 \
+            --proxy socks5://127.0.0.1:40000 \
             --js-runtimes deno \
             --impersonate chrome \
             -f "$fmt" \
@@ -82,7 +80,7 @@ jobs:
             fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
           fi
           ./bin/yt-dlp_linux \
-            --proxy socks5://127.0.0.1:1080 \
+            --proxy socks5://127.0.0.1:40000 \
             --js-runtimes deno \
             -f "$fmt" \
             --merge-output-format mp4 \
@@ -107,7 +105,7 @@ jobs:
             fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
           fi
           ./bin/yt-dlp_linux \
-            --proxy socks5://127.0.0.1:1080 \
+            --proxy socks5://127.0.0.1:40000 \
             -f "$fmt" \
             --merge-output-format mp4 \
             --ffmpeg-location ./bin/ffmpeg \
