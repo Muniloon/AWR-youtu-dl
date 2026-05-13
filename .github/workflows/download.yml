@@ -35,15 +35,25 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set execute permissions for local tools
-        run: chmod +x bin/yt-dlp_linux bin/ffmpeg bin/ffprobe bin/warp
+        run: chmod +x bin/yt-dlp_linux bin/ffmpeg bin/ffprobe
 
-      - name: Start WARP SOCKS5 proxy (standalone)
+      - name: Start WARP SOCKS5 proxy (Docker)
         run: |
-          nohup ./bin/warp socks5 > /dev/null 2>&1 &
-          # Wait up to 30 seconds for proxy to be ready
+          docker run -d \
+            --name warp \
+            -p 1080:1080 \
+            --cap-add NET_ADMIN \
+            --sysctl net.ipv6.conf.all.disable_ipv6=0 \
+            --sysctl net.ipv4.conf.all.src_valid_mark=1 \
+            -v warp-data:/var/lib/cloudflare-warp \
+            caomingjun/warp
+
+          # Wait up to 30 seconds for WARP to connect
           for i in $(seq 1 30); do
-            if curl -x socks5h://127.0.0.1:40000 -s https://www.google.com >/dev/null; then
-              echo "WARP proxy is ready on port 40000"
+            RESPONSE=$(curl -s --max-time 5 --socks5-hostname 127.0.0.1:1080 https://cloudflare.com/cdn-cgi/trace 2>/dev/null || echo "failed")
+            if echo "$RESPONSE" | grep -qE "warp=(on|plus)"; then
+              echo "WARP proxy is ready on port 1080"
+              echo "$RESPONSE"
               break
             fi
             sleep 1
@@ -62,7 +72,7 @@ jobs:
             fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
           fi
           ./bin/yt-dlp_linux \
-            --proxy socks5://127.0.0.1:40000 \
+            --proxy socks5://127.0.0.1:1080 \
             --js-runtimes deno \
             --impersonate chrome \
             -f "$fmt" \
@@ -86,7 +96,7 @@ jobs:
             fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
           fi
           ./bin/yt-dlp_linux \
-            --proxy socks5://127.0.0.1:40000 \
+            --proxy socks5://127.0.0.1:1080 \
             --js-runtimes deno \
             -f "$fmt" \
             --merge-output-format mp4 \
@@ -111,7 +121,7 @@ jobs:
             fmt="bestvideo[height<=${{ github.event.inputs.quality }}]+bestaudio/best[height<=${{ github.event.inputs.quality }}]"
           fi
           ./bin/yt-dlp_linux \
-            --proxy socks5://127.0.0.1:40000 \
+            --proxy socks5://127.0.0.1:1080 \
             -f "$fmt" \
             --merge-output-format mp4 \
             --ffmpeg-location ./bin/ffmpeg \
@@ -123,18 +133,16 @@ jobs:
           YT_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
 
       # =====================================================
-      # VERIFY DOWNLOAD (IGNORE .gitkeep)
+      # VERIFY DOWNLOAD
       # =====================================================
       - name: Check if download succeeded
         run: |
-          # Remove .gitkeep if it exists, to avoid false positive
           rm -f downloads/.gitkeep
-
           if [ -d downloads ] && [ "$(ls -A downloads 2>/dev/null)" ]; then
             echo "Download successful!"
             ls -lh downloads/
           else
-            echo "Download failed. Make sure WARP proxy is running and you have valid cookies."
+            echo "Download failed."
             exit 1
           fi
 
