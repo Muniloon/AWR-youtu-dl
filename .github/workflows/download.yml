@@ -37,11 +37,11 @@ jobs:
       - name: Set execute permissions for local tools
         run: chmod +x bin/yt-dlp_linux bin/ffmpeg bin/ffprobe
 
-      - name: Start WARP SOCKS5 proxy
+      - name: Start WARP SOCKS5 proxy (caomingjun/warp-socks)
         run: |
-          docker run -d --name warp-socks -p 1080:1080 e7h4n/warp-socks
+          docker run -d --name warp-socks -p 1080:1080 caomingjun/warp-socks
           # Wait for the proxy to be ready (up to 30 seconds)
-          for i in {1..30}; do
+          for i in $(seq 1 30); do
             if curl -x socks5h://127.0.0.1:1080 -s https://www.google.com >/dev/null; then
               echo "WARP proxy is ready"
               break
@@ -50,7 +50,7 @@ jobs:
           done
 
       # =====================================================
-      # STRATEGY 1: Chrome impersonation
+      # STRATEGY 1: Chrome impersonation (WITH Deno js engine)
       # =====================================================
       - name: Strategy 1 - Chrome impersonation with Deno
         id: strategy1
@@ -73,7 +73,7 @@ jobs:
             "${{ github.event.inputs.video_url }}"
 
       # =====================================================
-      # STRATEGY 2: Android/IOS client fallback
+      # STRATEGY 2: Android/IOS client fallback (WITH Deno)
       # =====================================================
       - name: Strategy 2 - Android + IOS client with Deno
         id: strategy2
