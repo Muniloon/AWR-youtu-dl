@@ -150,7 +150,6 @@ jobs:
       - name: Organize, verify and compress files
         if: success()
         run: |
-          # Generate a random password and store it in a file for later steps
           ZIP_PASS=$(openssl rand -base64 16)
           echo "$ZIP_PASS" > downloads/files/global_password.txt
           echo "ZIP_PASSWORD=${ZIP_PASS}" >> $GITHUB_ENV
@@ -164,11 +163,8 @@ jobs:
             for dir in downloads/files/*/; do
               folder_name=$(basename "$dir")
               cd downloads/files
-              # Save per-folder password as well (convenience)
               echo "$ZIP_PASS" > "${folder_name}_password.txt"
-              # Create the zip file with a clean name: VIDEOID.zip
               zip -P "$ZIP_PASS" -r "${folder_name}.zip" "$folder_name"
-              # Split the zip file into 45 MB chunks using the pattern: VIDEOID.part-00
               find . -name "${folder_name}.zip" -size +40M | while read z; do
                 split -b 45M -d "$z" "${folder_name}.part-"
                 rm "$z"
@@ -186,8 +182,6 @@ jobs:
         run: |
           REPO=${{ github.repository }}
           BRANCH="main"
-
-          # Read the global password
           ZIP_PASS=$(cat downloads/files/global_password.txt)
 
           INDEX="downloads/index.md"
@@ -197,27 +191,21 @@ jobs:
           echo "|---|-------|---------|---------|" >> "$INDEX"
 
           count=0
-          # Loop over all zip and part files in downloads/files/
           for file_path in downloads/files/*.zip downloads/files/*.part-00; do
             [ -f "$file_path" ] || continue
             base=$(basename "$file_path")
-            # Determine video ID by removing known suffixes
             if [[ "$base" == *.zip ]]; then
-              # e.g., BEDe1__H8Ds.zip → BEDe1__H8Ds
               video_id="${base%.zip}"
             elif [[ "$base" == *.part-00 ]]; then
-              # e.g., BEDe1__H8Ds.part-00 → BEDe1__H8Ds
               video_id=$(echo "$base" | sed 's/\.part-00//')
             else
               continue
             fi
 
-            # Get video title
             TITLE=$(./bin/yt-dlp_linux --proxy socks5://127.0.0.1:1080 --get-title "https://www.youtube.com/watch?v=${video_id}" 2>/dev/null || echo "Unknown Title")
             QUALITY="${{ github.event.inputs.quality }}"
             ORIGINAL_URL="https://www.youtube.com/watch?v=${video_id}"
 
-            # Create info page
             INFO_PAGE="downloads/files/${video_id}_info.md"
             echo "# ${TITLE}" > "$INFO_PAGE"
             echo "" >> "$INFO_PAGE"
@@ -227,28 +215,45 @@ jobs:
             echo "- **Zip Password:** \`${ZIP_PASS}\`" >> "$INFO_PAGE"
             echo "" >> "$INFO_PAGE"
 
-            # Build download links based on actual files
             if ls downloads/files/${video_id}.part-00 1>/dev/null 2>&1; then
+              # Split files exist
+              NUM_PARTS=$(ls downloads/files/${video_id}.part-* 2>/dev/null | wc -l)
               echo "## Download Parts" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
-              echo "File split into multiple parts:" >> "$INFO_PAGE"
+              echo "This video is split into **${NUM_PARTS}** parts:" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
               for p in downloads/files/${video_id}.part-*; do
                 pname=$(basename "$p")
                 echo "- [${pname}](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/files/${pname})" >> "$INFO_PAGE"
               done
               echo "" >> "$INFO_PAGE"
-              echo "To combine the parts, run:" >> "$INFO_PAGE"
+
+              echo "### How to combine the parts" >> "$INFO_PAGE"
+              echo "" >> "$INFO_PAGE"
+              echo "Choose the command that matches your operating system. Run it in the folder where all parts are downloaded." >> "$INFO_PAGE"
+              echo "" >> "$INFO_PAGE"
+              echo "**Windows Command Prompt:**" >> "$INFO_PAGE"
+              echo "\`\`\`cmd" >> "$INFO_PAGE"
+              echo "copy /b ${video_id}.part-* ${video_id}.zip" >> "$INFO_PAGE"
+              echo "\`\`\`" >> "$INFO_PAGE"
+              echo "" >> "$INFO_PAGE"
+              echo "**Windows PowerShell:**" >> "$INFO_PAGE"
+              echo "\`\`\`powershell" >> "$INFO_PAGE"
+              echo "Get-Content -Path ${video_id}.part-* -Raw | Set-Content -Path ${video_id}.zip" >> "$INFO_PAGE"
+              echo "\`\`\`" >> "$INFO_PAGE"
+              echo "" >> "$INFO_PAGE"
+              echo "**Linux / macOS:**" >> "$INFO_PAGE"
               echo "\`\`\`bash" >> "$INFO_PAGE"
               echo "cat ${video_id}.part-* > ${video_id}.zip" >> "$INFO_PAGE"
               echo "\`\`\`" >> "$INFO_PAGE"
+              echo "" >> "$INFO_PAGE"
+              echo "After combining, open \`${video_id}.zip\` with your archive manager and enter the password above." >> "$INFO_PAGE"
             else
               echo "## Download" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
               echo "[Full ZIP](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/files/${video_id}.zip)" >> "$INFO_PAGE"
             fi
 
-            # Add row to index (link to info page)
             count=$((count + 1))
             echo "| ${count} | [${TITLE}](./files/${video_id}_info.md) | ${QUALITY} | [Details](./files/${video_id}_info.md) |" >> "$INDEX"
           done
