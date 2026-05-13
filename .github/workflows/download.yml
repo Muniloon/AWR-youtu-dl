@@ -35,13 +35,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set execute permissions for local tools
-        run: chmod +x bin/yt-dlp_linux bin/ffmpeg bin/ffprobe
+        run: chmod +x bin/yt-dlp_linux bin/ffmpeg bin/ffprobe bin/warp
 
-      - name: Start WARP SOCKS5 proxy (native)
+      - name: Start WARP SOCKS5 proxy (standalone)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y cloudflare-warp   # already installed via setup, but this ensures it's present
-          bash scripts/start-warp.sh
+          nohup ./bin/warp socks5 > /dev/null 2>&1 &
+          # Wait up to 20 seconds for proxy to be ready
+          for i in $(seq 1 20); do
+            if curl -x socks5h://127.0.0.1:40000 -s https://www.google.com >/dev/null; then
+              echo "WARP proxy is ready on port 40000"
+              break
+            fi
+            sleep 1
+          done
 
       # =====================================================
       # STRATEGY 1: Chrome impersonation (WITH Deno js engine)
@@ -125,7 +131,7 @@ jobs:
             echo "Download successful!"
             ls -lh downloads/
           else
-            echo "Download failed. Try updating YouTube cookies or retry later."
+            echo "Download failed."
             exit 1
           fi
 
