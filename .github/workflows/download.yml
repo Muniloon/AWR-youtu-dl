@@ -48,19 +48,17 @@ jobs:
             -v warp-data:/var/lib/cloudflare-warp \
             caomingjun/warp
 
-          # Wait up to 30 seconds for WARP to connect
           for i in $(seq 1 30); do
             RESPONSE=$(curl -s --max-time 5 --socks5-hostname 127.0.0.1:1080 https://cloudflare.com/cdn-cgi/trace 2>/dev/null || echo "failed")
             if echo "$RESPONSE" | grep -qE "warp=(on|plus)"; then
               echo "WARP proxy is ready on port 1080"
-              echo "$RESPONSE"
               break
             fi
             sleep 1
           done
 
       # =====================================================
-      # STRATEGY 1: Chrome impersonation (WITH Deno js engine)
+      # STRATEGY 1
       # =====================================================
       - name: Strategy 1 - Chrome impersonation with Deno
         id: strategy1
@@ -83,7 +81,7 @@ jobs:
             "${{ github.event.inputs.video_url }}"
 
       # =====================================================
-      # STRATEGY 2: Android/IOS client fallback (WITH Deno)
+      # STRATEGY 2
       # =====================================================
       - name: Strategy 2 - Android + IOS client with Deno
         id: strategy2
@@ -107,7 +105,7 @@ jobs:
             "${{ github.event.inputs.video_url }}"
 
       # =====================================================
-      # STRATEGY 3: Use cookies (if secret exists)
+      # STRATEGY 3
       # =====================================================
       - name: Strategy 3 - With cookies
         id: strategy3
@@ -175,6 +173,82 @@ jobs:
             done
           fi
 
+      # =====================================================
+      # GENERATE INDEX AND VIDEO INFO PAGES
+      # =====================================================
+      - name: Generate index and video info pages
+        if: success()
+        run: |
+          REPO=${{ github.repository }}
+          BRANCH="main"
+
+          # Create header for the index file
+          INDEX="downloads/index.md"
+          echo "# Downloaded Videos" > "$INDEX"
+          echo "" >> "$INDEX"
+          echo "| # | Title | Quality | Video ID | Details |" >> "$INDEX"
+          echo "|---|-------|---------|----------|---------|" >> "$INDEX"
+
+          # Loop over all video ID folders (we have them as zip or part files)
+          for zip_or_part in downloads/*.zip downloads/*.part-00; do
+            [ -f "$zip_or_part" ] || continue
+
+            # Extract the video ID from the file name
+            base=$(basename "$zip_or_part")
+            if [[ "$base" == *.zip ]]; then
+              video_id="${base%.zip}"
+            elif [[ "$base" == *.part-00 ]]; then
+              video_id=$(echo "$base" | sed 's/\.mp4\.part-00//')
+            else
+              continue
+            fi
+
+            # Get video title (using yt-dlp, may require proxy still active)
+            TITLE=$(./bin/yt-dlp_linux --proxy socks5://127.0.0.1:1080 --get-title "https://www.youtube.com/watch?v=${video_id}" 2>/dev/null || echo "Unknown Title")
+            QUALITY="${{ github.event.inputs.quality }}"
+            ORIGINAL_URL="https://www.youtube.com/watch?v=${video_id}"
+
+            # Count parts
+            PARTS=()
+            for p in downloads/${video_id}.mp4.part-*; do
+              [ -f "$p" ] && PARTS+=("$(basename "$p")")
+            done
+
+            # --- Create video info page ---
+            INFO_PAGE="downloads/${video_id}.md"
+            echo "# ${TITLE}" > "$INFO_PAGE"
+            echo "" >> "$INFO_PAGE"
+            echo "- **Original URL:** [${ORIGINAL_URL}](${ORIGINAL_URL})" >> "$INFO_PAGE"
+            echo "- **Quality:** ${QUALITY}" >> "$INFO_PAGE"
+            echo "- **Video ID:** ${video_id}" >> "$INFO_PAGE"
+            echo "- **Zip Password:** \`${ZIP_PASS}\`" >> "$INFO_PAGE"
+            echo "" >> "$INFO_PAGE"
+
+            if [ ${#PARTS[@]} -gt 0 ]; then
+              echo "## Download Parts" >> "$INFO_PAGE"
+              echo "" >> "$INFO_PAGE"
+              echo "File split into ${#PARTS[@]} parts:" >> "$INFO_PAGE"
+              echo "" >> "$INFO_PAGE"
+              for p in "${PARTS[@]}"; do
+                echo "- [${p}](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/${p})" >> "$INFO_PAGE"
+              done
+              echo "" >> "$INFO_PAGE"
+              echo "To combine the parts, run:" >> "$INFO_PAGE"
+              echo "\`\`\`bash" >> "$INFO_PAGE"
+              echo "cat ${video_id}.mp4.part-* > ${video_id}.mp4.zip" >> "$INFO_PAGE"
+              echo "\`\`\`" >> "$INFO_PAGE"
+            else
+              echo "## Download" >> "$INFO_PAGE"
+              echo "" >> "$INFO_PAGE"
+              echo "[Full ZIP](https://raw.githubusercontent.com/${REPO}/${BRANCH}/downloads/${video_id}.mp4.zip)" >> "$INFO_PAGE"
+            fi
+
+            # --- Add row to index ---
+            # Get row number
+            ROW=$(( $(wc -l < "$INDEX") - 3 ))
+            echo "| ${ROW} | [${TITLE}](https://www.youtube.com/watch?v=${video_id}) | ${QUALITY} | ${video_id} | [Details](./${video_id}.md) |" >> "$INDEX"
+          done
+
       - name: Optimize Git and commit
         if: success()
         run: |
@@ -195,6 +269,6 @@ jobs:
           if ls downloads/*_password.txt 1>/dev/null 2>&1; then
             echo "=============================================="
             echo "Zip file password: ${{ env.ZIP_PASSWORD }}"
-            echo "Also saved as *_password.txt in downloads/"
+            echo "Also saved in video info page and password.txt"
             echo "=============================================="
           fi
