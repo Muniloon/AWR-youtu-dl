@@ -37,17 +37,13 @@ jobs:
       - name: Set execute permissions for local tools
         run: chmod +x bin/yt-dlp_linux bin/ffmpeg bin/ffprobe
 
-      - name: Start WARP SOCKS5 proxy (caomingjun/warp-socks)
+      - name: Start WARP SOCKS5 proxy (cloudflare/warp)
         run: |
-          docker run -d --name warp-socks -p 1080:1080 caomingjun/warp-socks
-          # Wait for the proxy to be ready (up to 30 seconds)
-          for i in $(seq 1 30); do
-            if curl -x socks5h://127.0.0.1:1080 -s https://www.google.com >/dev/null; then
-              echo "WARP proxy is ready"
-              break
-            fi
-            sleep 1
-          done
+          docker run -d --name warp-socks -p 1080:1080 cloudflare/warp
+          # Wait up to 30 seconds for the proxy to become ready
+          timeout 30 bash -c 'until curl -x socks5h://127.0.0.1:1080 -s https://www.google.com >/dev/null; do sleep 1; done' \
+            && echo "WARP proxy is ready" \
+            || echo "WARNING: WARP proxy may not be ready, continuing anyway..."
 
       # =====================================================
       # STRATEGY 1: Chrome impersonation (WITH Deno js engine)
@@ -131,7 +127,7 @@ jobs:
             echo "Download successful!"
             ls -lh downloads/
           else
-            echo "Download failed."
+            echo "Download failed. Try updating YouTube cookies or retry later."
             exit 1
           fi
 
