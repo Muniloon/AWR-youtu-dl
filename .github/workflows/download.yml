@@ -145,34 +145,40 @@ jobs:
           fi
 
       # =====================================================
-      # ORGANIZE, VERIFY, COMPRESS & SAVE PASSWORD
+      # COMPRESS & GENERATE PASSWORD (per video)
       # =====================================================
-      - name: Organize, verify and compress files
+      - name: Compress videos and assign password per video
         if: success()
         run: |
-          ZIP_PASS=$(openssl rand -base64 16)
-          echo "$ZIP_PASS" > downloads/files/global_password.txt
-          echo "ZIP_PASSWORD=${ZIP_PASS}" >> $GITHUB_ENV
+          for dir in downloads/files/*/; do
+            folder_name=$(basename "$dir")
+            # Generate a unique password for this video
+            VID_PASS=$(openssl rand -base64 16)
+            echo "$VID_PASS" > "downloads/files/${folder_name}_password.txt"
 
-          if ls downloads/files/**/*.mp4 1>/dev/null 2>&1; then
-            for f in downloads/files/**/*.mp4; do
-              echo "Verifying $f"
-              ./bin/ffprobe -v error -show_entries format=duration,bit_rate,size -of default=noprint_wrappers=1 "$f"
-            done
+            # Remove old zip/parts for this video (if any)
+            rm -f downloads/files/${folder_name}.zip downloads/files/${folder_name}.part-*
 
-            for dir in downloads/files/*/; do
-              folder_name=$(basename "$dir")
-              cd downloads/files
-              echo "$ZIP_PASS" > "${folder_name}_password.txt"
-              zip -P "$ZIP_PASS" -r "${folder_name}.zip" "$folder_name"
-              find . -name "${folder_name}.zip" -size +40M | while read z; do
-                split -b 45M -d "$z" "${folder_name}.part-"
-                rm "$z"
+            cd downloads/files
+            # Verify and compress
+            if ls "$folder_name"/*.mp4 1>/dev/null 2>&1; then
+              for f in "$folder_name"/*.mp4; do
+                echo "Verifying $f"
+                ../../bin/ffprobe -v error -show_entries format=duration,bit_rate,size -of default=noprint_wrappers=1 "$f"
               done
+              zip -P "$VID_PASS" -r "${folder_name}.zip" "$folder_name"
+              # Split if larger than 40 MB
+              if [ -f "${folder_name}.zip" ]; then
+                SIZE=$(stat -c%s "${folder_name}.zip")
+                if [ "$SIZE" -gt 41943040 ]; then  # 40 * 1024 * 1024
+                  split -b 45M -d "${folder_name}.zip" "${folder_name}.part-"
+                  rm "${folder_name}.zip"
+                fi
+              fi
               rm -rf "$folder_name"
-              cd ../..
-            done
-          fi
+            fi
+            cd ../..
+          done
 
       # =====================================================
       # GENERATE INDEX AND VIDEO INFO PAGES
@@ -182,7 +188,6 @@ jobs:
         run: |
           REPO=${{ github.repository }}
           BRANCH="main"
-          ZIP_PASS=$(cat downloads/files/global_password.txt)
 
           INDEX="downloads/index.md"
           echo "# Downloaded Videos" > "$INDEX"
@@ -194,12 +199,21 @@ jobs:
           for file_path in downloads/files/*.zip downloads/files/*.part-00; do
             [ -f "$file_path" ] || continue
             base=$(basename "$file_path")
+            # Determine video ID
             if [[ "$base" == *.zip ]]; then
               video_id="${base%.zip}"
             elif [[ "$base" == *.part-00 ]]; then
               video_id=$(echo "$base" | sed 's/\.part-00//')
             else
               continue
+            fi
+
+            # Read the password for this video
+            PASSWORD_FILE="downloads/files/${video_id}_password.txt"
+            if [ -f "$PASSWORD_FILE" ]; then
+              VID_PASS=$(cat "$PASSWORD_FILE")
+            else
+              VID_PASS="unknown"
             fi
 
             TITLE=$(./bin/yt-dlp_linux --proxy socks5://127.0.0.1:1080 --get-title "https://www.youtube.com/watch?v=${video_id}" 2>/dev/null || echo "Unknown Title")
@@ -212,7 +226,7 @@ jobs:
             echo "- **Original URL:** [${ORIGINAL_URL}](${ORIGINAL_URL})" >> "$INFO_PAGE"
             echo "- **Quality:** ${QUALITY}" >> "$INFO_PAGE"
             echo "- **Video ID:** ${video_id}" >> "$INFO_PAGE"
-            echo "- **Zip Password:** \`${ZIP_PASS}\`" >> "$INFO_PAGE"
+            echo "- **Zip Password:** \`${VID_PASS}\`" >> "$INFO_PAGE"
             echo "" >> "$INFO_PAGE"
 
             if ls downloads/files/${video_id}.part-00 1>/dev/null 2>&1; then
@@ -230,7 +244,7 @@ jobs:
 
               echo "### How to combine the parts" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
-              echo "Choose the command that matches your operating system. Run it in the folder where all parts are downloaded." >> "$INFO_PAGE"
+              echo "Choose your operating system:" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
               echo "**Windows Command Prompt:**" >> "$INFO_PAGE"
               echo "\`\`\`cmd" >> "$INFO_PAGE"
@@ -247,7 +261,7 @@ jobs:
               echo "cat ${video_id}.part-* > ${video_id}.zip" >> "$INFO_PAGE"
               echo "\`\`\`" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
-              echo "After combining, open \`${video_id}.zip\` with your archive manager and enter the password above." >> "$INFO_PAGE"
+              echo "After combining, open \`${video_id}.zip\` with your archive manager and use the password above." >> "$INFO_PAGE"
             else
               echo "## Download" >> "$INFO_PAGE"
               echo "" >> "$INFO_PAGE"
@@ -271,13 +285,3 @@ jobs:
           git add downloads/
           git commit -m "Add downloaded video $(date +%Y%m%d_%H%M%S)" || echo "Nothing to commit"
           git push
-
-      - name: Print password
-        if: success()
-        run: |
-          if [ -f downloads/files/global_password.txt ]; then
-            echo "=============================================="
-            echo "Zip file password: $(cat downloads/files/global_password.txt)"
-            echo "Also saved in video info pages and password.txt files"
-            echo "=============================================="
-          fi
