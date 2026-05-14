@@ -3,7 +3,7 @@
 - **Original URL:** [https://www.youtube.com/watch?v=VYjzto2p0ow](https://www.youtube.com/watch?v=VYjzto2p0ow)
 - **Quality:** 480
 - **Video ID:** VYjzto2p0ow
-- **Zip Password:** `pv9ywemyeBjNzWSLgDBMIA==`
+- **Zip Password:** `B5rpw3sm41LdRJ9LMnCmHg==`
 
 ## Download
 
